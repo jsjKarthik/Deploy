@@ -1,0 +1,57 @@
+name: Deploy Node.js to EC2
+
+on:
+  push:
+    branches:
+      - main
+
+  workflow_dispatch:
+
+jobs:
+
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install Ansible
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ansible
+
+      - name: Install Ansible collection
+        run: |
+          ansible-galaxy collection install community.general
+
+      - name: Configure SSH
+        env:
+          SSH_PRIVATE_KEY: ${{ secrets.EC2_SSH_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$SSH_PRIVATE_KEY" > ~/.ssh/ec2_key
+          chmod 600 ~/.ssh/ec2_key
+
+      - name: Add EC2 to known hosts
+        run: |
+          ssh-keyscan -H "${{ secrets.EC2_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Configure inventory
+        run: |
+          sed -i "s/EC2_HOST_PLACEHOLDER/${{ secrets.EC2_HOST }}/g" ansible/inventory.ini
+
+      - name: Test Ansible connection
+        run: |
+          ansible all \
+            -i ansible/inventory.ini \
+            --private-key ~/.ssh/ec2_key \
+            -m ping
+
+      - name: Deploy with Ansible
+        run: |
+          ansible-playbook \
+            -i ansible/inventory.ini \
+            ansible/deploy.yml \
+            --private-key ~/.ssh/ec2_key
